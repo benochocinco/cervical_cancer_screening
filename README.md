@@ -1,1 +1,5 @@
-# cervical_cancer_screening
+# Predicting Cases of Cervical Cancer in the 'Hospital Universitario de Caracas'
+
+We have selected a dataset that focuses on risk factors for cervical cancer. The data was collected at Hospital Universitario (which is located in Caracas Venezuela) in 2017. There are 36 attributes in the dataset, all of which are either integers or booleans (e.g. age, number of sexual partners, whether or not the individual smokes, whether or not the individual has AIDS). There are 858 instances of the 36 attributes.
+
+Our goal is to both build a highly predictive model for identifying cases of cervical cancer among patients in the 'Hospital Universitario de Caracas', and identify which features are most important for predicting cases of cervical cancer. We will compare multiple families of Generalized Linear Models for classification, as well as more modern machine learning techniques in order to determine our best predictive model. Furthermore, we will use L1 (LASSO) Logistic Regression in order to identify which features are most predictive and use bootstrap sampling to validate the stability of those features in their predictive power. Hopefully, our discoveries can be used by medical professionals to inform their research and ability to treat patients.
