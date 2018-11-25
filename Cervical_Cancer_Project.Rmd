@@ -1,0 +1,39 @@
+---
+title: "Predicting Cases of Cervical Cancer in the 'Hospital Universitario de Caracas'"
+author: "Ben Herndon-Miller and Nicole Jaiyesimi"
+date: "11/25/2018"
+output: pdf_document
+---
+
+```{r echo = FALSE}
+# Load dependencies
+library(dplyr)
+library(knitr)
+
+# Read in data
+cancer_df <- read.csv("risk_factors_cervical_cancer.csv", header = TRUE, stringsAsFactors = FALSE)
+```
+
+# Introduction
+
+## Data Description
+
+The data was collected at Hospital Universitario (which is located in Caracas Venezuela) in 2017. There are 36 attributes in the dataset, all of which are either integers or booleans (e.g. age, number of sexual partners, whether or not the individual smokes, whether or not the individual has AIDS). There are 858 instances of the 36 attributes, but there are some missing values; we will conduct a coverage analysis of the data in our final project. We examine the number of missing values for each variable.
+
+#### Coverage Analysis
+
+```{r echo = FALSE}
+data_coverage <- data.frame(matrix(nrow = ncol(cancer_df), ncol = 3))
+colnames(data_coverage) <- c("Variable", "Missing_Values", "Percent_Missing")
+data_coverage$Variable <- names(cancer_df)
+data_coverage$Missing_Values <- colSums(cancer_df == "?")
+data_coverage$Percent_Missing <- colSums(cancer_df == "?")/nrow(cancer_df)
+
+kable(data_coverage, format = "markdown")
+```
+
+We can see from this coverage analysis that the majority of our variables have missing data points. 
+
+
+
+
