@@ -5,35 +5,78 @@ date: "11/25/2018"
 output: pdf_document
 ---
 
-```{r echo = FALSE}
+```{r echo=FALSE, warning=FALSE, message=FALSE}
 # Load dependencies
 library(dplyr)
 library(knitr)
 
 # Read in data
-cancer_df <- read.csv("risk_factors_cervical_cancer.csv", header = TRUE, stringsAsFactors = FALSE)
+cancer_raw <- read.csv("risk_factors_cervical_cancer.csv", header = TRUE, stringsAsFactors = FALSE)
 ```
 
 # Introduction
 
 ## Data Description
 
-The data was collected at Hospital Universitario (which is located in Caracas Venezuela) in 2017. There are 36 attributes in the dataset, all of which are either integers or booleans (e.g. age, number of sexual partners, whether or not the individual smokes, whether or not the individual has AIDS). There are 858 instances of the 36 attributes, but there are some missing values; we will conduct a coverage analysis of the data in our final project. We examine the number of missing values for each variable.
+The data was collected at Hospital Universitario (which is located in Caracas Venezuela) in 2017. There are 36 attributes in the dataset, all of which are either integers or booleans (e.g. age, number of sexual partners, whether or not the individual smokes, whether or not the individual has AIDS). There are 858 instances of the 36 attributes, but there are many missing values; we will conduct a coverage analysis of the data in our final project. 
 
-#### Coverage Analysis
+Furthermore, the description of the dataset does not include detailed information on a variety of variables. First and foremost, there are 4 variables that could be considered the outcome variable of interest for a diagnosis of cancer: *Hinselmann*, *Schiller*, *Citology*, or *Biopsy*. These all represent different screening techniques for identifying and diagnosing cervical cancer. Since we need to determine a single outcome variable to predict, we proceed using the binary variable *Biopsy* as it is the gold standard for diagnosing cervical cancer. We will discard the other potential outcome variables from our dataset before we proceed.
+
+First, let us examine the number of missing values for each variable before we proceed.
+
+#### Coverage Analysis and Missing Data Methodology
 
 ```{r echo = FALSE}
-data_coverage <- data.frame(matrix(nrow = ncol(cancer_df), ncol = 3))
-colnames(data_coverage) <- c("Variable", "Missing_Values", "Percent_Missing")
+# Remove other outcome variables
+drops <- c("Hinselmann", "Schiller", "Citology")
+cancer_df <- cancer_raw[,!names(cancer_raw) %in% drops]
+
+# Create coverage data frame
+data_coverage <- data.frame(matrix(nrow = ncol(cancer_df), ncol = 4))
+colnames(data_coverage) <- c("Variable","Variable_Type", "Missing_Values", "Percent_Missing")
 data_coverage$Variable <- names(cancer_df)
+var_types <- c("int","int","int","int","bool","int","int","bool","int","bool","int","bool","int","bool","bool","bool","bool","bool","bool","bool","bool","bool","bool","bool","bool","int","int","int","bool","bool","bool","bool","bool")
+data_coverage$Variable_Type <- var_types
 data_coverage$Missing_Values <- colSums(cancer_df == "?")
 data_coverage$Percent_Missing <- colSums(cancer_df == "?")/nrow(cancer_df)
+
+# Replace ? with NA
+cancer_df[cancer_df == "?"] <- NA
 
 kable(data_coverage, format = "markdown")
 ```
 
-We can see from this coverage analysis that the majority of our variables have missing data points. 
+We can see from this coverage analysis that the majority of our variables have missing data points. However, most features are not missing a high-proportion of values, except for Time Since First/Last Diagnosis of STD. These are all missing for the patients who stated that they had not had any STD's, so it would be inaccurate to simply replace them with 0 as that would bias the model towards more patients having a small time period since their STD. Replacing them with the mean or median value would also not make sense since the true value would be infinity since they have never had a diagnosis. For the sake of simplicity, we will move forward by removing these two variables from our analysis. 
 
+However, we still must deal with the missing values for the other variables. For the integer variables of *Age of first sexual intercourse*, *Number of sexual partners*, and *Number of pregnancies*, we can replace the missing values with the median values of their respective variables. In contrast, for the variables pertaining to smoking, STD's, and contraceptives, we cannot simply replace the missing values with the median value as they are based on boolean values. Thus, we will then remove the rows with missing values for the missing variables and report.
 
+```{r echo = FALSE}
+# Drop time since first/last diagnosis variables as we don't have a good method for dealing with them
+drops <- c(drops,"STDs..Time.since.first.diagnosis","STDs..Time.since.last.diagnosis")
+cancer_df <- cancer_df[,!names(cancer_df) %in% drops]
+
+# Convert all variables to numeric from character since ?'s induced character variables
+for (i in 1:ncol(cancer_df)){
+  cancer_df[,i] <- as.numeric(cancer_df[,i])
+}
+
+# Replace missing values with median values for specified variables
+cancer_df$First.sexual.intercourse[is.na(cancer_df$First.sexual.intercourse)] <- median(cancer_df$First.sexual.intercourse, na.rm = TRUE)
+cancer_df$Number.of.sexual.partners[is.na(cancer_df$Number.of.sexual.partners)] <- median(cancer_df$Number.of.sexual.partners, na.rm = TRUE)
+cancer_df$Num.of.pregnancies[is.na(cancer_df$Num.of.pregnancies)] <- median(cancer_df$Num.of.pregnancies, na.rm = TRUE)
+
+# Only keep rows without missing values
+cancer_df <- cancer_df[complete.cases(cancer_df),]
+```
+
+After cleaning the data with the above methodology we are left with a dataset of 726 observations and 31 features (30 predictors). We can now move forward with exploratory analysis and predictive modelling.
+
+## Exploratory Data Analysis
+
+## Predictive Modelling
+
+```{r echo = FALSE}
+
+```
 
 
