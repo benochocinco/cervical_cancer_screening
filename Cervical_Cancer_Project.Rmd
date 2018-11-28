@@ -8,7 +8,10 @@ output: pdf_document
 ```{r echo=FALSE, warning=FALSE, message=FALSE}
 # Load dependencies
 library(dplyr)
-library(knitr)
+library(caret)
+library(DMwR)
+library(purrr)
+library(pROC)
 
 # Read in data
 cancer_raw <- read.csv("risk_factors_cervical_cancer.csv", header = TRUE, stringsAsFactors = FALSE)
@@ -55,9 +58,16 @@ However, we still must deal with the missing values for the other variables. For
 drops <- c(drops,"STDs..Time.since.first.diagnosis","STDs..Time.since.last.diagnosis")
 cancer_df <- cancer_df[,!names(cancer_df) %in% drops]
 
-# Convert all variables to numeric from character since ?'s induced character variables
+# Convert all variables to numeric and factor from character since ?'s induced character variables
 for (i in 1:ncol(cancer_df)){
-  cancer_df[,i] <- as.numeric(cancer_df[,i])
+  idx <- names(cancer_df)[i] == data_coverage$Variable
+  type <- data_coverage$Variable_Type[idx]
+  if (type == "int"){
+    cancer_df[,i] <- as.numeric(cancer_df[,i])
+  }
+  if (type == "bool"){
+    cancer_df[,i] <- as.factor(cancer_df[,i])
+  }
 }
 
 # Replace missing values with median values for specified variables
@@ -73,10 +83,43 @@ After cleaning the data with the above methodology we are left with a dataset of
 
 ## Exploratory Data Analysis
 
-## Predictive Modelling
-
 ```{r echo = FALSE}
 
 ```
 
+## Predictive Modelling
 
+We know from the above exploratory analysis that the outcome variable is highly imbalanced with only 6.9% of Biopsy's resulting in a cervical cancer diagnosis. Thus, incorporating methodologies for handling imbalanced classes will be vital for the success of our modelling.
+
+Furthermore, we will need to split our data into training/validation, query and test sets in order to properly tune & compare our models before reporting the final accuracy of our best model on the test set. 
+
+```{r echo = FALSE}
+# 
+
+# Set seed for reproducibility
+set.seed(123)
+
+# Split data into training and query/test
+train_idx <- createDataPartition(cancer_df$Biopsy, p = .6, list = FALSE)
+
+train_cancer <- cancer_df[train_idx,] 
+query_test_cancer <- cancer_df[-train_idx,]
+
+# Split data into query and test
+query_idx <- createDataPartition(query_test_cancer$Biopsy, p = .5, list = FALSE)
+
+query_cancer <- query_test_cancer[query_idx,]
+test_cancer <- query_test_cancer[-query_idx,]
+```
+
+### Logistic Regression
+
+```{r echo = FALSE}
+# Set seed for reproducibility
+set.seed(123)
+
+# Fit logistic regression model 
+logistic_fit <- glm(Biopsy ~ ., data = train_cancer, family = binomial)
+
+
+```
