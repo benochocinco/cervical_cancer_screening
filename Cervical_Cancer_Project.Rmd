@@ -12,6 +12,7 @@ library(caret)
 library(DMwR)
 library(purrr)
 library(pROC)
+library(mlbench)
 
 # Read in data
 cancer_raw <- read.csv("risk_factors_cervical_cancer.csv", header = TRUE, stringsAsFactors = FALSE)
@@ -70,6 +71,16 @@ for (i in 1:ncol(cancer_df)){
   }
 }
 
+# Get rid of boolean variables with less than 10 instances of each class
+for (i in 1:ncol(cancer_df)){
+  if (is.factor(cancer_df[,i])){
+    if (sum(cancer_df[,i] == 1, na.rm = TRUE) < 5){
+      drops <- c(drops,names(cancer_df)[i])
+    }
+  }
+}
+
+
 # Replace missing values with median values for specified variables
 cancer_df$First.sexual.intercourse[is.na(cancer_df$First.sexual.intercourse)] <- median(cancer_df$First.sexual.intercourse, na.rm = TRUE)
 cancer_df$Number.of.sexual.partners[is.na(cancer_df$Number.of.sexual.partners)] <- median(cancer_df$Number.of.sexual.partners, na.rm = TRUE)
@@ -94,22 +105,35 @@ We know from the above exploratory analysis that the outcome variable is highly 
 Furthermore, we will need to split our data into training/validation, query and test sets in order to properly tune & compare our models before reporting the final accuracy of our best model on the test set. 
 
 ```{r echo = FALSE}
-# 
+# Drop variables that only have one factor level and redundant variables to reduce multicollinearity
+drops <- c(drops, "STDs.vulvo.perineal.condylomatosis")
+cancer_model_df <- cancer_df[,!names(cancer_df) %in% drops] %>%
+  rename(Number_of_sexual_partners = Number.of.sexual.partners, 
+         First_sexual_intercourse = First.sexual.intercourse, 
+         Num_of_pregnancies = Num.of.pregnancies, 
+         Smokes_years = Smokes..years., 
+         Smokes_packs_year=Smokes..packs.year.,
+         Hormonal_Contraceptives = Hormonal.Contraceptives, 
+         Hormonal_Contraceptives_years = Hormonal.Contraceptives..years.,
+         IUD_years = IUD..years.,
+         STDs_number = STDs..number.,
+         STDs_condylomatosis = STDs.condylomatosis,
+         STDs_syphilis = STDs.syphilis,
+         STDs_HIV = STDs.HIV,
+         STDs_Number_of_diagnosis = STDs..Number.of.diagnosis,
+         Dx_Cancer = Dx.Cancer,
+         Dx_CIN = Dx.CIN,
+         Dx_HPV = Dx.HPV
+         )
 
 # Set seed for reproducibility
 set.seed(123)
 
 # Split data into training and query/test
-train_idx <- createDataPartition(cancer_df$Biopsy, p = .6, list = FALSE)
+train_idx <- createDataPartition(cancer_model_df$Biopsy, p = .7, list = FALSE)
 
-train_cancer <- cancer_df[train_idx,] 
-query_test_cancer <- cancer_df[-train_idx,]
-
-# Split data into query and test
-query_idx <- createDataPartition(query_test_cancer$Biopsy, p = .5, list = FALSE)
-
-query_cancer <- query_test_cancer[query_idx,]
-test_cancer <- query_test_cancer[-query_idx,]
+train_cancer <- cancer_model_df[train_idx,] 
+test_cancer <- cancer_model_df[-train_idx,]
 ```
 
 ### Logistic Regression
@@ -118,8 +142,62 @@ test_cancer <- query_test_cancer[-query_idx,]
 # Set seed for reproducibility
 set.seed(123)
 
-# Fit logistic regression model 
-logistic_fit <- glm(Biopsy ~ ., data = train_cancer, family = binomial)
+# Fit basic logistic regression model 
+logistic_fit <- train(Biopsy ~ ., 
+                       data = train_cancer,
+                       method = "glm",
+                       family = binomial)
+
+# Used code from http://dpmartin42.github.io/posts/r/imbalanced-classes-part-1
+
+# Build custom AUC function to extract AUC
+# from the caret model object
+test_roc <- function(model, data) {
+  roc(data$Biopsy,
+      predict(model, data, type = "prob")[, "1"])
+}
+
+logistic_train_auc <- logistic_fit %>%
+  test_roc(data = train_cancer) %>%
+  auc()
+
+logistic_test_auc <- logistic_fit %>%
+  test_roc(data = test_cancer) %>%
+  auc()
+
+```
 
 
+
+### Receiver Operating Characteristic (ROC) Curves
+
+```{r echo = FALSE}
+model_list <- list(logistic_fit = logistic_fit)
+
+model_list_train_roc <- model_list %>%
+  map(test_roc, data = train_cancer)
+
+model_list_test_roc <- model_list %>%
+  map(test_roc, data = test_cancer)
+
+results_list_train_roc <- list(NA)
+num_mod <- 1
+
+for(the_roc in model_list_train_roc){
+  results_list_train_roc[[num_mod]] <- 
+    data_frame(tpr = the_roc$sensitivities,
+               fpr = 1 - the_roc$specificities,
+               model = names(model_list)[num_mod])
+  num_mod <- num_mod + 1
+}
+
+results_df_train_roc <- bind_rows(results_list_train_roc)
+
+train_col <- c("#000000")
+
+ggplot(aes(x = fpr,  y = tpr, group = model), data = results_df_train_roc) +
+  geom_line(aes(color = model), size = 1) +
+  scale_color_manual(values = train_col) +
+  geom_abline(intercept = 0, slope = 1, color = "gray", size = 1) +
+  theme_bw(base_size = 18)
 ```
