@@ -543,7 +543,7 @@ for(the_roc in model_list_test_roc){
     data_frame(tpr = the_roc$sensitivities,
                fpr = 1 - the_roc$specificities,
                model = names(model_list)[num_mod])
-  num_mod <- num_mod + 1gi
+  num_mod <- num_mod + 1
 }
 
 results_df_test_roc <- bind_rows(results_list_test_roc)
