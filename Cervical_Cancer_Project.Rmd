@@ -5,7 +5,12 @@ date: "11/25/2018"
 output: pdf_document
 ---
 
-```{r echo=FALSE, warning=FALSE, message=FALSE}
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,
+                      results = "hide")
+```
+
+```{r warning=FALSE, message=FALSE}
 # Load dependencies
 library(dplyr)
 library(caret)
@@ -13,6 +18,7 @@ library(DMwR)
 library(purrr)
 library(pROC)
 library(mlbench)
+library(ggplot2)
 
 # Read in data
 cancer_raw <- read.csv("risk_factors_cervical_cancer.csv", header = TRUE, stringsAsFactors = FALSE)
@@ -20,7 +26,7 @@ cancer_raw <- read.csv("risk_factors_cervical_cancer.csv", header = TRUE, string
 
 # Introduction
 
-## Data Description
+# Data Description
 
 The data was collected at Hospital Universitario (which is located in Caracas Venezuela) in 2017. There are 36 attributes in the dataset, all of which are either integers or booleans (e.g. age, number of sexual partners, whether or not the individual smokes, whether or not the individual has AIDS). There are 858 instances of the 36 attributes, but there are many missing values; we will conduct a coverage analysis of the data in our final project. 
 
@@ -28,7 +34,7 @@ Furthermore, the description of the dataset does not include detailed informatio
 
 First, let us examine the number of missing values for each variable before we proceed.
 
-#### Coverage Analysis and Missing Data Methodology
+### Coverage Analysis and Missing Data Methodology
 
 ```{r echo = FALSE}
 # Remove other outcome variables
@@ -74,7 +80,7 @@ for (i in 1:ncol(cancer_df)){
 # Get rid of boolean variables with less than 10 instances of each class
 for (i in 1:ncol(cancer_df)){
   if (is.factor(cancer_df[,i])){
-    if (sum(cancer_df[,i] == 1, na.rm = TRUE) < 5){
+    if (sum(cancer_df[,i] == 1, na.rm = TRUE) < 10){
       drops <- c(drops,names(cancer_df)[i])
     }
   }
@@ -92,13 +98,13 @@ cancer_df <- cancer_df[complete.cases(cancer_df),]
 
 After cleaning the data with the above methodology we are left with a dataset of 726 observations and 31 features (30 predictors). We can now move forward with exploratory analysis and predictive modelling.
 
-## Exploratory Data Analysis
+# Exploratory Data Analysis
 
 ```{r echo = FALSE}
 
 ```
 
-## Predictive Modelling
+# Predictive Modelling
 
 We know from the above exploratory analysis that the outcome variable is highly imbalanced with only 6.9% of Biopsy's resulting in a cervical cancer diagnosis. Thus, incorporating methodologies for handling imbalanced classes will be vital for the success of our modelling.
 
@@ -122,9 +128,15 @@ cancer_model_df <- cancer_df[,!names(cancer_df) %in% drops] %>%
          STDs_HIV = STDs.HIV,
          STDs_Number_of_diagnosis = STDs..Number.of.diagnosis,
          Dx_Cancer = Dx.Cancer,
-         Dx_CIN = Dx.CIN,
          Dx_HPV = Dx.HPV
          )
+
+# Fix factor levels for classification 
+for (i in 1:ncol(cancer_model_df)){
+  if (is.factor(cancer_model_df[,i])){
+    cancer_model_df[,i] <- make.names(cancer_model_df[,i])
+  }
+}
 
 # Set seed for reproducibility
 set.seed(123)
@@ -133,12 +145,33 @@ set.seed(123)
 train_idx <- createDataPartition(cancer_model_df$Biopsy, p = .7, list = FALSE)
 
 train_cancer <- cancer_model_df[train_idx,] 
+train_cancer_x <- train_cancer[,-ncol(train_cancer)]
+train_cancer_y <- train_cancer[,ncol(train_cancer)]
+
 test_cancer <- cancer_model_df[-train_idx,]
+test_cancer_x <- test_cancer[,-ncol(test_cancer)]
+test_cancer_y <- test_cancer[,ncol(test_cancer)]
+
+# Set up train control for all of our models
+ctrl <- trainControl(method = "cv",
+                     number = 5,
+                     returnResamp="all",
+                     summaryFunction = twoClassSummary,
+                     classProbs = TRUE)
+
+# Build custom AUC function to extract AUC from the caret model object
+# Used code from http://dpmartin42.github.io/posts/r/imbalanced-classes-part-1
+test_roc <- function(model, data) {
+  roc(data$Biopsy,
+      predict(model, data, type = "prob")[, "X1"])
+}
 ```
 
-### Logistic Regression
+## Logistic Regression 
 
-```{r echo = FALSE}
+### Multivariate Logistic Regression
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
 # Set seed for reproducibility
 set.seed(123)
 
@@ -148,15 +181,8 @@ logistic_fit <- train(Biopsy ~ .,
                        method = "glm",
                        family = binomial)
 
-# Used code from http://dpmartin42.github.io/posts/r/imbalanced-classes-part-1
 
-# Build custom AUC function to extract AUC
-# from the caret model object
-test_roc <- function(model, data) {
-  roc(data$Biopsy,
-      predict(model, data, type = "prob")[, "1"])
-}
-
+# Record training and test AUC
 logistic_train_auc <- logistic_fit %>%
   test_roc(data = train_cancer) %>%
   auc()
@@ -167,18 +193,135 @@ logistic_test_auc <- logistic_fit %>%
 
 ```
 
-
-
-### Receiver Operating Characteristic (ROC) Curves
+### L1 (LASSO) Logistic Regression
 
 ```{r echo = FALSE}
-model_list <- list(logistic_fit = logistic_fit)
+# Set seed for reproducibility
+set.seed(123)
+
+# Train L1 Logistic Regression to find optimal lambda
+l1_logistic_fit <- train(Biopsy ~ ., 
+                         data = train_cancer, 
+                         method = "glmnet", 
+                         trControl = ctrl, 
+                         metric = "ROC",
+                         tuneGrid = expand.grid(alpha = 1,
+                                                lambda = 10^seq(-1,-4,length=50)))
+
+# Record training and test AUC
+l1_logistic_train_auc <- l1_logistic_fit %>%
+  test_roc(data = train_cancer) %>%
+  auc()
+
+l1_logistic_test_auc <- l1_logistic_fit %>%
+  test_roc(data = test_cancer) %>%
+  auc()
+
+```
+
+### L2 (Ridge) Logistic Regression
+
+```{r echo = FALSE}
+# Set seed for reproducibility
+set.seed(123)
+
+# Train L2 Logistic Regression to find optimal lambda
+l2_logistic_fit <- train(Biopsy ~ ., 
+                         data = train_cancer, 
+                         method = "glmnet", 
+                         trControl = ctrl, metric = "ROC",
+                         tuneGrid = expand.grid(alpha = 0,
+                                                lambda = 10^seq(-1,-4,length=50)))
+
+# Record training and test AUC
+l2_logistic_train_auc <- l2_logistic_fit %>%
+  test_roc(data = train_cancer) %>%
+  auc()
+
+l2_logistic_test_auc <- l2_logistic_fit %>%
+  test_roc(data = test_cancer) %>%
+  auc()
+
+```
+
+### Elastic Net Logistic Regression
+
+```{r echo = FALSE}
+# Set seed for reproducibility
+set.seed(123)
+
+# Train Elastic Net Logistic Regression to find optimal lambda
+elnet_logistic_fit <- train(Biopsy ~ ., 
+                            data = train_cancer, 
+                            method = "glmnet", 
+                            trControl = ctrl, 
+                            metric = "ROC",
+                            tuneGrid = expand.grid(alpha = seq(0.05,0.95,0.05),
+                                                   lambda = 10^seq(-1,-4,length=50)))
+
+# Record training and test AUC
+elnet_logistic_train_auc <- elnet_logistic_fit %>%
+  test_roc(data = train_cancer) %>%
+  auc()
+
+elnet_logistic_test_auc <- elnet_logistic_fit %>%
+  test_roc(data = test_cancer) %>%
+  auc()
+
+```
+
+### Stepwise Logistic Regression
+
+```{r echo = FALSE, warning = FALSE, message = FALSE}
+# Set seed for reproducibility
+set.seed(123)
+
+# Train Elastic Net Logistic Regression to find optimal lambda
+stpwise_logistic_fit <- train(Biopsy ~ .,
+                              data = train_cancer, 
+                              method = "glmStepAIC",
+                              family = binomial)
+
+# Record training and test AUC
+stpwise_logistic_train_auc <- stpwise_logistic_fit %>%
+  test_roc(data = train_cancer) %>%
+  auc()
+
+stpwise_logistic_test_auc <- stpwise_logistic_fit %>%
+  test_roc(data = test_cancer) %>%
+  auc()
+```
+
+### Training and Test AUC for Logistic Regression 
+
+```{r echo = FALSE}
+method <- c("Logistic Regression", "L1 Logistic Regression", "L2 Logistic Regression", "Elastic Net", "Stepwise Logistic Regression")
+
+train_auc <- c(logistic_train_auc, l1_logistic_train_auc, l2_logistic_train_auc, elnet_logistic_train_auc, stpwise_logistic_train_auc)
+
+test_auc <- c(logistic_test_auc, l1_logistic_test_auc, l2_logistic_test_auc, elnet_logistic_test_auc, stpwise_logistic_test_auc)
+
+log_reg_results <- data.frame(Method = method, Train_AUC = train_auc, Test_AUC = test_auc)
+
+kable(log_reg_results, format = "markdown")
+```
+
+### Receiver Operating Characteristic (ROC) Curves for Logistic Regression
+
+```{r echo = FALSE}
+model_list <- list(logistic_regression = logistic_fit,
+                   L1_logistic_regression = l1_logistic_fit,
+                   L2_logistic_regression = l2_logistic_fit,
+                   Elastic_net = elnet_logistic_fit,
+                   Stepwise_Logistic_Regression = stpwise_logistic_fit)
 
 model_list_train_roc <- model_list %>%
   map(test_roc, data = train_cancer)
 
 model_list_test_roc <- model_list %>%
   map(test_roc, data = test_cancer)
+
+col <- c("#000000", "#009E73", "#0072B2", "#D55E00", "#CC79A7")
 
 results_list_train_roc <- list(NA)
 num_mod <- 1
@@ -193,11 +336,229 @@ for(the_roc in model_list_train_roc){
 
 results_df_train_roc <- bind_rows(results_list_train_roc)
 
-train_col <- c("#000000")
+results_list_test_roc <- list(NA)
+num_mod <- 1
+
+for(the_roc in model_list_test_roc){
+  results_list_test_roc[[num_mod]] <- 
+    data_frame(tpr = the_roc$sensitivities,
+               fpr = 1 - the_roc$specificities,
+               model = names(model_list)[num_mod])
+  num_mod <- num_mod + 1
+}
+
+results_df_test_roc <- bind_rows(results_list_test_roc)
 
 ggplot(aes(x = fpr,  y = tpr, group = model), data = results_df_train_roc) +
   geom_line(aes(color = model), size = 1) +
-  scale_color_manual(values = train_col) +
+  scale_color_manual(values = col) +
   geom_abline(intercept = 0, slope = 1, color = "gray", size = 1) +
-  theme_bw(base_size = 18)
+  theme_bw(base_size = 18) +
+  ggtitle("Training ROC Curves")
+
+ggplot(aes(x = fpr,  y = tpr, group = model), data = results_df_test_roc) +
+  geom_line(aes(color = model), size = 1) +
+  scale_color_manual(values = col) +
+  geom_abline(intercept = 0, slope = 1, color = "gray", size = 1) +
+  theme_bw(base_size = 18) +
+  ggtitle("Test ROC Curves")
+```
+
+
+## Penalized Logistic Regression with Re-sampling Techniques
+
+Since the Elastic Net performed the best out of all the previous methods on the test set, we will proceed to re-tune the model with different re-sampling techniques to see if we can improve our performance. 
+
+### Elastic Net Logistic Regression with Class Weights
+
+```{r echo = FALSE}
+# Set seed for reproducibility
+set.seed(123)
+
+# Create class weights 
+model_weights <- ifelse(train_cancer$Biopsy == "X0",
+                        (1/table(train_cancer$Biopsy)[1]) * 0.5,
+                        (1/table(train_cancer$Biopsy)[2]) * 0.5)
+
+# Use same seed as before
+ctrl$seeds <- elnet_logistic_fit$control$seeds
+
+# Train Elastic Net Logistic Regression to find optimal lambda
+elnet_weight_fit <- train(Biopsy ~ ., 
+                          data = train_cancer, 
+                          method = "glmnet",
+                          weights = model_weights,
+                          trControl = ctrl, 
+                          metric = "ROC",
+                          tuneGrid = expand.grid(alpha = seq(0.05,0.95,0.05),
+                                                 lambda = 10^seq(-1,-4,length=50)))
+
+# Record training and test AUC
+elnet_weight_train_auc <- elnet_weight_fit %>%
+  test_roc(data = train_cancer) %>%
+  auc()
+
+elnet_weight_test_auc <- elnet_weight_fit %>%
+  test_roc(data = test_cancer) %>%
+  auc()
+
+```
+
+### Elastic Net Logistic Regression with Down-Sampling
+
+```{r echo = FALSE}
+# Set seed for reproducibility
+set.seed(123)
+
+# Initialize down-sampling
+ctrl$sampling <- "down"
+
+# Train Elastic Net Logistic Regression to find optimal lambda
+elnet_down_fit <- train(Biopsy ~ ., 
+                          data = train_cancer, 
+                          method = "glmnet",
+                          trControl = ctrl, 
+                          metric = "ROC",
+                          tuneGrid = expand.grid(alpha = seq(0.05,0.95,0.05),
+                                                 lambda = 10^seq(-1,-4,length=50)))
+
+# Record training and test AUC
+elnet_down_train_auc <- elnet_down_fit %>%
+  test_roc(data = train_cancer) %>%
+  auc()
+
+elnet_down_test_auc <- elnet_down_fit %>%
+  test_roc(data = test_cancer) %>%
+  auc()
+
+```
+
+### Elastic Net Logistic Regression with Up-Sampling
+
+```{r echo = FALSE}
+# Set seed for reproducibility
+set.seed(123)
+
+# Initialize down-sampling
+ctrl$sampling <- "up"
+
+# Train Elastic Net Logistic Regression to find optimal lambda
+elnet_up_fit <- train(Biopsy ~ ., 
+                          data = train_cancer, 
+                          method = "glmnet",
+                          trControl = ctrl, 
+                          metric = "ROC",
+                          tuneGrid = expand.grid(alpha = seq(0.05,0.95,0.05),
+                                                 lambda = 10^seq(-1,-4,length=50)))
+
+# Record training and test AUC
+elnet_up_train_auc <- elnet_up_fit %>%
+  test_roc(data = train_cancer) %>%
+  auc()
+
+elnet_up_test_auc <- elnet_up_fit %>%
+  test_roc(data = test_cancer) %>%
+  auc()
+
+```
+
+### Elastic Net Logistic Regression with SMOTE (Synthetic Minority Oversampling TEchnique)
+
+```{r echo = FALSE}
+# Set seed for reproducibility
+set.seed(123)
+
+# Initialize down-sampling
+ctrl$sampling <- "smote"
+
+# Train Elastic Net Logistic Regression to find optimal lambda
+elnet_smote_fit <- train(Biopsy ~ ., 
+                          data = train_cancer, 
+                          method = "glmnet",
+                          trControl = ctrl, 
+                          metric = "ROC",
+                          tuneGrid = expand.grid(alpha = seq(0.05,0.95,0.05),
+                                                 lambda = 10^seq(-1,-4,length=50)))
+
+# Record training and test AUC
+elnet_smote_train_auc <- elnet_smote_fit %>%
+  test_roc(data = train_cancer) %>%
+  auc()
+
+elnet_smote_test_auc <- elnet_smote_fit %>%
+  test_roc(data = test_cancer) %>%
+  auc()
+
+```
+
+### Training and Test AUC for Elastic Net with Re-sampling Techniques
+
+```{r echo = FALSE}
+method <- c("No Re-sampling", "Class Weights", "Down-Sampling", "Up-Sampling", "SMOTE")
+
+train_auc <- c(elnet_logistic_train_auc, elnet_weight_train_auc, elnet_down_train_auc, elnet_up_train_auc, elnet_smote_train_auc)
+
+test_auc <- c(elnet_logistic_test_auc, elnet_weight_test_auc, elnet_down_test_auc, elnet_up_test_auc, elnet_smote_test_auc)
+
+elnet_resamp_results <- data.frame(Method = method, Train_AUC = train_auc, Test_AUC = test_auc)
+
+kable(elnet_resamp_results, format = "markdown")
+```
+
+### Receiver Operating Characteristic (ROC) Curves for Logistic Regression with Re-sampling Techniques
+
+```{r echo = FALSE}
+model_list <- list(No_resampling = elnet_logistic_fit,
+                   Class_Weights = elnet_weight_fit,
+                   Down_Sampling = elnet_down_fit,
+                   Up_Sampling = elnet_up_fit,
+                   SMOTE = elnet_smote_fit)
+
+model_list_train_roc <- model_list %>%
+  map(test_roc, data = train_cancer)
+
+model_list_test_roc <- model_list %>%
+  map(test_roc, data = test_cancer)
+
+col <- c("#000000", "#009E73", "#0072B2", "#D55E00", "#CC79A7")
+
+results_list_train_roc <- list(NA)
+num_mod <- 1
+
+for(the_roc in model_list_train_roc){
+  results_list_train_roc[[num_mod]] <- 
+    data_frame(tpr = the_roc$sensitivities,
+               fpr = 1 - the_roc$specificities,
+               model = names(model_list)[num_mod])
+  num_mod <- num_mod + 1
+}
+
+results_df_train_roc <- bind_rows(results_list_train_roc)
+
+results_list_test_roc <- list(NA)
+num_mod <- 1
+
+for(the_roc in model_list_test_roc){
+  results_list_test_roc[[num_mod]] <- 
+    data_frame(tpr = the_roc$sensitivities,
+               fpr = 1 - the_roc$specificities,
+               model = names(model_list)[num_mod])
+  num_mod <- num_mod + 1gi
+}
+
+results_df_test_roc <- bind_rows(results_list_test_roc)
+
+ggplot(aes(x = fpr,  y = tpr, group = model), data = results_df_train_roc) +
+  geom_line(aes(color = model), size = 1) +
+  scale_color_manual(values = col) +
+  geom_abline(intercept = 0, slope = 1, color = "gray", size = 1) +
+  theme_bw(base_size = 18) +
+  ggtitle("Training ROC Curves")
+
+ggplot(aes(x = fpr,  y = tpr, group = model), data = results_df_test_roc) +
+  geom_line(aes(color = model), size = 1) +
+  scale_color_manual(values = col) +
+  geom_abline(intercept = 0, slope = 1, color = "gray", size = 1) +
+  theme_bw(base_size = 18) +
+  ggtitle("Test ROC Curves")
 ```
