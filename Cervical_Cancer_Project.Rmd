@@ -1231,7 +1231,7 @@ ggplot(aes(x = fpr,  y = tpr, group = model), data = results_df_test_roc) +
 We can now look at feature importance for our optimal model to understand what is the best predictor of cervical cancer.
 
 ```{r echo = FALSE}
-xgb_imp <- varImp(xgb_fit)
+xgb_imp <- varImp(xgb_down_fit)
 
 kable(xgb_imp$importance, format = 'markdown')
 ```
