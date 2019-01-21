@@ -5,11 +5,6 @@ date: "11/25/2018"
 output: pdf_document
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE,
-                      results = "hide")
-```
-
 ```{r warning=FALSE, message=FALSE}
 # Load dependencies
 library(dplyr)
@@ -20,6 +15,7 @@ library(purrr)
 library(pROC)
 library(mlbench)
 library(ggplot2)
+library(reshape2)
 
 # Read in data
 cancer_raw <- read.csv("risk_factors_cervical_cancer.csv", header = TRUE, stringsAsFactors = FALSE)
@@ -101,8 +97,80 @@ After cleaning the data with the above methodology we are left with a dataset of
 
 # Exploratory Data Analysis
 
-```{r echo = FALSE}
+We begin with looking at the Biopsy variable, as it is our outcome variable. Of the 726 observations remaining after cleaning our data, only 50 of them (6.9%) have a positive biopsy outcome. We will address this imbalance in the predictive modeling portion of our presentation. 
 
+Considering our goal of building a highly predictive model for identifying cases of cervical cancer, we believe that exploring our 30 predictors is a crucial aspect of identifying relationsips that may exist between them and Biopsy outcome variable. The imbalance of the Biopsy variable beggs the question of whether or not specific values of certain predictors can be tied to the positive Biopsy cases. None of our predictors are continuous, so we can divide our discrete variables into two categories for further exploration: integer and boolean.
+
+## Integer Data
+
+We begin with simple scatter plots and stacked bar graphs for our integer predictors. Plotting each integer predictor versus Biopsy outcome with the scatter plots allows us to compare the integer values of the points with a positive cancer biopsy to those with a negative one. The stacked bar graphs allow us to see relative frequencies of positve and negative biopsies for each value of an integer predictor. 
+
+```{r, include= TRUE}
+#List of all 9 non-boolean predictors
+non_booleans <- c("Age", "Number.of.sexual.partners", "First.sexual.intercourse", "Smokes..years.", "Smokes..packs.year.", "Hormonal.Contraceptives..years.", "IUD..years.", "STDs..number.", "STDs..Number.of.diagnosis") 
+
+#Set up a 3x3 plotting space
+par(mfrow = c(2, 5))
+
+#Plot predictors vs. biopsy result
+for (non_boolean in non_booleans){
+  y_value2 <- subset(cancer_df, select = non_boolean)
+  y_value2 <- (unlist(y_value2, use.names=FALSE))
+  plot(x = cancer_df$Biopsy, y = y_value2, type = "p", xlab = "Biopsy Result", ylab = non_boolean)
+  
+  temporary_df <- subset(cancer_df, select = c(non_boolean, "Biopsy"))
+  unique_values <- c()
+  positives <- c()
+  negatives <- c()
+  for (value in unique(y_value2)){
+    if (value%%1==0){
+      unique_values <- c(unique_values, value)
+      has_this_value <- subset(temporary_df, temporary_df[,1] == value)
+      negatives <- c(negatives, sum(!has_this_value$Biopsy))
+      positives <- c(positives, sum(has_this_value$Biopsy))
+    }
+  }
+  this_variable_df <- data.frame(unique_values, positives, negatives)
+  tmp <- melt(this_variable_df, id.vars = "unique_values",
+              measure.vars = c("positives", "negatives"))
+  print(ggplot(tmp, aes(x = unique_values, y = value, fill = variable)) + 
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values=c("#E69F00", "#56B4E9"),name="Biopsy",breaks=c("positives", "negatives"), labels=c("Positive Result","Negative Result")) +
+  xlab(non_boolean) +
+  ylab("Count")) 
+  #guides(colour = "colorbar", size = "legend", shape = "legend") 
+}
+```
+
+###Boolean Variables
+Plotting the boolean predictors against the Biopsy outcome would not give us a useful result. Chart data is more valuable in this case. For each boolean predictor we list the count and percentage of patients with positive biopsies that also have a corresponding positive value for that predictor. 
+```{r, include= TRUE}
+#List of all 21 boolean predictors
+booleans <- c("Smokes", "Hormonal.Contraceptives", "IUD", "STDs", "STDs.condylomatosis", "STDs.cervical.condylomatosis", "STDs.vaginal.condylomatosis", "STDs.vulvo.perineal.condylomatosis", "STDs.syphilis", "STDs.pelvic.inflammatory.disease", "STDs.genital.herpes", "STDs.molluscum.contagiosum", "STDs.AIDS", "STDs.HIV", "STDs.Hepatitis.B", "STDs.HPV", "Dx.Cancer", "Dx.CIN", "Dx.HPV", "Dx")
+
+#Data frame with only positive biopsies
+positive_biopsies <- subset(cancer_df, Biopsy == 1)
+
+#Creating data frame for chart
+boolean_df <- data.frame(matrix(nrow = length(booleans), ncol = 3))
+colnames(boolean_df) <- c("Predictor","Count Positive", "Percent Positive")
+boolean_df$Predictor <- booleans
+
+#Getting counts for chart
+count_vector <- c()
+for (boolean in booleans){
+  column <- subset(positive_biopsies, select = boolean)
+  count <- sum(column == 1)
+  count_vector <- c(count_vector, count)
+}
+
+#Adding counts and percents to table
+#percent_vector <- (count_vector/50) * 100
+percent_vector <- c("20%", "66%", "18%", "22%", "14%",  "0%",  "0%", "14%",  "0%",  "0%",  "2%",  "0%",  "0%",  "8%",  "0%",  "0%", "12%",  "4%", "12%", "12%")
+boolean_df$`Count Positive` <- count_vector
+boolean_df$`Percent Positive` <- percent_vector
+
+kable(boolean_df, format = "markdown", align = "l")
 ```
 
 # Predictive Modelling
@@ -284,6 +352,9 @@ kable(bin_reg_results, format = "markdown")
 ### Receiver Operating Characteristic (ROC) Curves for Binomial Regression with Different Link Functions
 
 ```{r echo = FALSE}
+# Set seed for reproducibility
+set.seed(123)
+
 model_list <- list(Logit = logistic_fit,
                    Probit = probit_fit,
                    Cauchit = cauchit_fit,
@@ -463,6 +534,9 @@ kable(log_reg_results, format = "markdown")
 ### Receiver Operating Characteristic (ROC) Curves for Logistic Regression with Penalties & Feature Selection
 
 ```{r echo = FALSE}
+# Set seed for reproducibility
+set.seed(123)
+
 model_list <- list(logistic_regression = logistic_fit,
                    L1_logistic_regression = l1_logistic_fit,
                    L2_logistic_regression = l2_logistic_fit,
@@ -665,6 +739,9 @@ kable(elnet_resamp_results, format = "markdown")
 ### Receiver Operating Characteristic (ROC) Curves for Elastic Net with Re-sampling Techniques
 
 ```{r echo = FALSE}
+# Set seed for reproducibility
+set.seed(123)
+
 model_list <- list(Logistic_Regression = logistic_fit,
                    No_resampling = elnet_logistic_fit,
                    Class_Weights = elnet_weight_fit,
@@ -843,6 +920,9 @@ kable(glm_svm_results, format = "markdown")
 ### Receiver Operating Characteristic (ROC) Curves for Other GLM Frameworks and SVM's
 
 ```{r echo = FALSE}
+# Set seed for reproducibility
+set.seed(123)
+
 model_list <- list(Logistic_Regression = logistic_fit,
                    Boosted_Logistic_Regression = boosted_logistic_fit,
                    Generalized_Additive_Model = gam_fit,
@@ -979,12 +1059,13 @@ gbm_test_auc <- gbm_fit %>%
 set.seed(123)
 
 # Train Xgboost model
-xgb_fit <- train(Biopsy ~ ., 
+xgb_fit <- caret::train(Biopsy ~ ., 
                        data = train_cancer, 
                        method = "xgbTree",
                        preProc = c("center", "scale"),
                        trControl = ctrl, 
-                       metric = "ROC")
+                       metric = "ROC",
+                       tuneLength = 100)
 
 # Record training and test AUC
 xgb_train_auc <- xgb_fit %>%
@@ -1014,6 +1095,9 @@ kable(modern_ml_results, format = "markdown")
 ### Receiver Operating Characteristic (ROC) Curves for Modern Machine Learning Classifiers
 
 ```{r echo = FALSE}
+# Set seed for reproducibility
+set.seed(123)
+
 model_list <- list(Logistic_Regression = logistic_fit,
                    Random_Forest = rf_fit,
                    Adaboost = adaboost_fit,
@@ -1079,6 +1163,9 @@ Now that we have found our best classifier after train *a lot* of models. We can
 # Set seed for reproducibility
 set.seed(123)
 
+# Set seed within CV
+ctrl$seeds <- xgb_fit$control$seeds
+
 # Build down-sampled model
 ctrl$sampling <- "down"
 
@@ -1106,6 +1193,9 @@ xgb_down_test_auc <- xgb_down_fit %>%
 # Set seed for reproducibility
 set.seed(123)
 
+# Set seed within CV
+ctrl$seeds <- xgb_fit$control$seeds
+
 # Build down-sampled model
 ctrl$sampling <- "up"
 
@@ -1132,6 +1222,9 @@ xgb_up_test_auc <- xgb_up_fit %>%
 ```{r echo = FALSE}
 # Set seed for reproducibility
 set.seed(123)
+
+# Set seed within CV
+ctrl$seeds <- xgb_fit$control$seeds
 
 # Build down-sampled model
 ctrl$sampling <- "smote"
@@ -1171,6 +1264,9 @@ kable(xgb_samp_results, format = "markdown")
 ### Receiver Operating Characteristic (ROC) Curves for eXtreme Gradient Boosting with Re-sampling Techniques
 
 ```{r echo = FALSE}
+# Set seed for reproducibility
+set.seed(123)
+
 model_list <- list(Logistic_Regression = logistic_fit,
                    xGB = xgb_fit,
                    xGB_Down = xgb_down_fit,
@@ -1231,6 +1327,9 @@ ggplot(aes(x = fpr,  y = tpr, group = model), data = results_df_test_roc) +
 We can now look at feature importance for our optimal model to understand what is the best predictor of cervical cancer.
 
 ```{r echo = FALSE}
+# Set seed for reproducibility
+set.seed(123)
+
 xgb_imp <- varImp(xgb_down_fit)
 
 kable(xgb_imp$importance, format = 'markdown')
